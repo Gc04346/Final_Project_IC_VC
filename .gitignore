@@ -1,4 +1,5 @@
 .idea/
 venv/
 __pycache__/
+yolo_obj_detec/yolo_coco/yolov3.weights
 !.gitignore
