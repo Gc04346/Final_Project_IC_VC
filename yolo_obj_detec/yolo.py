@@ -1,4 +1,5 @@
 import os
+import csv
 import cv2 as cv
 import time
 import argparse
@@ -6,6 +7,8 @@ import numpy as np
 
 
 # adicionando argumentos
+from utils import load_images_from_folder
+
 ap = argparse.ArgumentParser()
 ap.add_argument("-i", "--image", required=True, help="path to input image")
 ap.add_argument("-y", "--yolo", required=True, help="base path to YOLO directory")
@@ -29,74 +32,96 @@ config_path = os.path.sep.join([args["yolo"], "yolov3.cfg"])
 print('loading YOLO...')
 net = cv.dnn.readNetFromDarknet(config_path, weights_path)
 
-# carregando a imagem e suas dimensões espaciais
-image = cv.imread(args["image"])
-(h, w) = image.shape[:2]
+# carregando as imagens
+images = load_images_from_folder(args["image"])
+office_labels = set()
+images_labels = []
 
-# definindo somente as camadas de saída
-ln = net.getLayerNames()
-ln = [ln[i[0] - 1] for i in net.getUnconnectedOutLayers()]
+# iterando sobre as imagens do diretório
+for image in images:
+    (h, w) = image.shape[:2]
 
-# separando a partir da image inserida e então performando a rede FP do YOLO detector
-# gerando os retângulos e as probabilidades
-blob = cv.dnn.blobFromImage(image, 1/255.0, (416, 416), swapRB=True, crop=False)
-net.setInput(blob)
-start = time.time()
-layer_outputs = net.forward(ln)
-end = time.time()
+    # definindo somente as camadas de saída
+    ln = net.getLayerNames()
+    ln = [ln[i[0] - 1] for i in net.getUnconnectedOutLayers()]
 
-# exibindo tal informação
-print(f'Processamento em {end - start}')
+    # separando a partir da image inserida e então performando a rede FP do YOLO detector
+    # gerando os retângulos e as probabilidades
+    blob = cv.dnn.blobFromImage(image, 1/255.0, (416, 416), swapRB=True, crop=False)
+    net.setInput(blob)
+    start = time.time()
+    layer_outputs = net.forward(ln)
+    end = time.time()
 
-# inicializando as listas de detected bounding boxes, confidences and class Ids
-boxes = []
-confidences = []
-class_ids = []
+    # exibindo tal informação
+    print(f'Processamento em {end - start}')
 
-# iterando sobre cada camada de saída
-for output in layer_outputs:
-    # iterando sobre cada detecção
-    for detection in output:
-        # extraindo o ID da classe, probabilidade e a detecção do objeto
-        scores = detection[5:]
-        class_id = np.argmax(scores)
-        confidence = scores[class_id]
+    # inicializando as listas de detected bounding boxes, confidences and class Ids
+    boxes = []
+    confidences = []
+    class_ids = []
 
-        # filtrando as predições "fracas"
-        if confidence > args["confidence"]:
-            # escalando a box para o tamanho original da imagem
-            box = detection[0:4] * np.array([w, h, w, h])
-            (center_x, center_y, width, height) = box.astype("int")
+    # iterando sobre cada camada de saída
+    for output in layer_outputs:
+        # iterando sobre cada detecção
+        for detection in output:
+            # extraindo o ID da classe, probabilidade e a detecção do objeto
+            scores = detection[5:]
+            class_id = np.argmax(scores)
+            confidence = scores[class_id]
 
-            # usando as coordenadas do centro (x, y) para derivar o canto superior e esquerdo
-            x = int(center_x - (width/2))
-            y = int(center_y - (height/2))
+            # filtrando as predições "fracas"
+            if confidence > args["confidence"]:
+                # escalando a box para o tamanho original da imagem
+                box = detection[0:4] * np.array([w, h, w, h])
+                (center_x, center_y, width, height) = box.astype("int")
 
-            # atualizando nossas listas
-            boxes.append([x, y, int(width), int(height)])
-            confidences.append(float(confidence))
-            class_ids.append(class_id)
+                # usando as coordenadas do centro (x, y) para derivar o canto superior e esquerdo
+                x = int(center_x - (width/2))
+                y = int(center_y - (height/2))
 
-# aplicando o non-maxima suppression para suprimir predições fracas
-idxs = cv.dnn.NMSBoxes(boxes, confidences, args["confidence"], args['threshold'])
+                # atualizando nossas listas
+                boxes.append([x, y, int(width), int(height)])
+                confidences.append(float(confidence))
+                class_ids.append(class_id)
 
-# conferindo se temos pelo menos uma detecção
-if len(idxs) > 0:
-    # iterando por cada índice
-    for i in idxs.flatten():
-        # extraindo a caixa de marcação do objeto
-        (x, y) = (boxes[i][0], boxes[i][1])
-        (w, h) = (boxes[i][2], boxes[i][3])
+    # aplicando o non-maxima suppression para suprimir predições fracas
+    idxs = cv.dnn.NMSBoxes(boxes, confidences, args["confidence"], args['threshold'])
+    labels = set()
 
-        # desenhando a caixa de marcação do objeto
-        color = [int(c) for c in COLORS[class_ids[i]]]
-        cv.rectangle(image, (x, y), (x+w, y+h), color, 2)
-        text = f'{LABELS[class_ids[i]]}: {confidences[i]:.4f}'
-        cv.putText(image, text, (x, y-5), cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+    # conferindo se temos pelo menos uma detecção
+    if len(idxs) > 0:
+        # iterando por cada índice
+        for i in idxs.flatten():
+            # extraindo a caixa de marcação do objeto
+            # (x, y) = (boxes[i][0], boxes[i][1])
+            # (w, h) = (boxes[i][2], boxes[i][3])
 
-# exibindo a imagem
-cv.imshow("Image", image)
-cv.waitKey(0)
+            # desenhando a caixa de marcação do objeto
+            # color = [int(c) for c in COLORS[class_ids[i]]]
+            # cv.rectangle(image, (x, y), (x+w, y+h), color, 2)
+            # text = f'{LABELS[class_ids[i]]}: {confidences[i]:.4f}'
+            text = f'{LABELS[class_ids[i]]}'
+            labels.add(text)
+            # cv.putText(image, text, (x, y-5), cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
+    # preparando o conjunto e a lista de todas as features de todas as imagens lidas
+    office_labels = office_labels.union(labels)
+    images_labels.append(labels)
 
+# gerando o arquivo csv com as features
+office_labels = sorted(office_labels)
+images_labels = [sorted(labels) for labels in images_labels]
+headers = [label for label in office_labels]
 
+with open('dataset.csv', 'w', newline='') as csv_file:
+    writer = csv.writer(csv_file)
+    writer.writerow(headers)
+    for labels in images_labels:
+        content = []
+        for office_label in office_labels:
+            if office_label in labels:
+                content.append(1)
+            else:
+                content.append(0)
+        writer.writerow(content)
