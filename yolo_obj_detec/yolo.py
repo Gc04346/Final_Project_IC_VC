@@ -19,6 +19,11 @@ args = vars(ap.parse_args())
 # carregando as labels do COCO onde o modelo YOLO foi treinado
 labels_path = os.path.sep.join([args["yolo"], "coco.names"])
 LABELS = open(labels_path).read().strip().split("\n")
+# labels já presentes testadas no dataset
+OFFICE_LABELS = ['apple', 'backpack', 'bed', 'book', 'bottle', 'bowl', 'car', 'cat', 'cell phone', 'chair', 'clock',
+                 'cup', 'diningtable', 'handbag', 'keyboard', 'knife', 'laptop', 'microwave', 'mouse', 'orange', 'oven',
+                 'person', 'pizza', 'pottedplant', 'remote', 'scissors', 'sofa', 'spoon', 'teddy bear', 'tie',
+                 'tvmonitor', 'vase', 'wine glass', 'mean', 'variance', 'std', 'office']
 
 # inicializando uma lista de cores para representar cada label possível
 np.random.seed(42)
@@ -34,7 +39,7 @@ net = cv.dnn.readNetFromDarknet(config_path, weights_path)
 
 # carregando as imagens
 images = load_images_from_folder(args["image"])
-office_labels = set()
+# office_labels = set()
 images_labels = []
 
 # iterando sobre as imagens do diretório
@@ -106,22 +111,38 @@ for image in images:
             # cv.putText(image, text, (x, y-5), cv.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
     # preparando o conjunto e a lista de todas as features de todas as imagens lidas
-    office_labels = office_labels.union(labels)
+    # office_labels = office_labels.union(labels)
+    labels = list(sorted(labels))
+    labels.append(image.mean())
+    image_std = image.std()
+    labels.append(image_std**2)
+    labels.append(image_std)
     images_labels.append(labels)
 
 # gerando o arquivo csv com as features
-office_labels = sorted(office_labels)
-images_labels = [sorted(labels) for labels in images_labels]
-headers = [label for label in office_labels]
+# office_labels = sorted(office_labels)
+# images_labels = [sorted(labels) for labels in images_labels]
+# headers = [label for label in OFFICE_LABELS]
+# headers.append('office')
 
-with open('dataset.csv', 'w', newline='') as csv_file:
+with open('dataset_metrics.csv', 'a', newline='') as csv_file:
     writer = csv.writer(csv_file)
-    writer.writerow(headers)
+    # gravando o cabeçalho
+    # writer.writerow(OFFICE_LABELS)
+    # para cada conjunto de labels entre as labels das imagens
     for labels in images_labels:
         content = []
-        for office_label in office_labels:
+        # conferindo se a label encontrada está entre as labels encontradas em escritórios
+        for office_label in OFFICE_LABELS:
+            # registrando a presença ou não da feature
             if office_label in labels:
-                content.append(1)
+                content.append(True)
             else:
-                content.append(0)
+                content.append(False)
+        # adicionando ao final as métricas de média, variância e desvio padrão
+        content.append(labels[-3])
+        content.append(labels[-2])
+        content.append(labels[-1])
+        # adicionando a marcação de escritório e inserindo o conteúdo no arquivo
+        content.append(False)
         writer.writerow(content)
